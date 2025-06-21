@@ -1,5 +1,6 @@
 # backend/app/api/auth.py
-import sys
+import sys, uuid
+import time
 sys.path.append("..")
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse
@@ -72,7 +73,8 @@ async def google_callback(request: Request, code: str):
     with open("token.pickle", "wb") as token_file:
         pickle.dump(credentials, token_file)
 
-    return RedirectResponse("https://jump-app-ulrl.vercel.app/?auth=success")
+    return RedirectResponse("http://localhost:5173?auth=success")
+
 
 @router.get("/logout")
 async def logout(request: Request):
@@ -84,21 +86,30 @@ async def logout(request: Request):
 # === HUBSPOT OAUTH FLOW ===
 HUBSPOT_AUTH_URL = "https://app.hubspot.com/oauth/authorize"
 HUBSPOT_TOKEN_URL = "https://api.hubapi.com/oauth/v1/token"
-HUBSPOT_SCOPES = "contacts crm.objects.contacts.read crm.objects.contacts.write"
+HUBSPOT_SCOPES = "crm.objects.contacts.read crm.objects.contacts.write"
 
 @router.get("/hubspot")
-def hubspot_auth():
+def hubspot_auth(request: Request):
+    state = str(uuid.uuid4())
+    request.session["hubspot_oauth_state"] = state
     params = {
         "client_id": config.settings.HUBSPOT_CLIENT_ID,
         "redirect_uri": config.settings.HUBSPOT_REDIRECT_URI,
         "scope": HUBSPOT_SCOPES,
+        "state": state,  # Add this
         "response_type": "code"
     }
     url = HUBSPOT_AUTH_URL + "?" + urllib.parse.urlencode(params)
     return RedirectResponse(url)
 
 @router.get("/hubspot/callback")
-async def hubspot_callback(code: str):
+async def hubspot_callback(request: Request, code: str, state: str = None):
+    # Verify state if provided
+    # print(state)
+    # print(request.session.get("hubspot_oauth_state"))
+    # if state and state != request.session.get("hubspot_oauth_state"):
+    #     raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     data = {
         "grant_type": "authorization_code",
@@ -108,6 +119,18 @@ async def hubspot_callback(code: str):
         "code": code
     }
     async with httpx.AsyncClient() as client:
-        resp = await client.post(HUBSPOT_TOKEN_URL, headers=headers, data=data)
-        token_data = resp.json()
-        return token_data
+        try:
+            resp = await client.post(HUBSPOT_TOKEN_URL, headers=headers, data=data)
+            resp.raise_for_status()
+            token_data = resp.json()
+            
+            # Add expiry timestamp
+            token_data["expires_at"] = int(time.time()) + token_data.get("expires_in", 1800)
+            
+            # ✅ Save HubSpot tokens to file
+            with open("hubspot_tokens.pickle", "wb") as token_file:
+                pickle.dump(token_data, token_file)
+            
+            return RedirectResponse("http://localhost:5173?auth=hubspot_success")
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=400, detail=f"HubSpot token error: {e.response.text}")

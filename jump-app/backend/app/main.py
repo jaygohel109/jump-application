@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
-from api import auth, chat
+from api import auth, chat, hubspot
 from services.google import build_flow, handle_google_callback
 from dotenv import load_dotenv
 import os
@@ -35,6 +35,7 @@ app.add_middleware(
 # Register API routers
 app.include_router(auth.router, prefix="/auth")
 app.include_router(chat.router, prefix="/chat")
+app.include_router(hubspot.router, prefix="/hubspot")
 
 @app.get("/")
 def root():
