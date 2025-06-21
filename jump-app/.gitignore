@@ -1,0 +1,13 @@
+token.pickle
+backend/app/credentials.json
+.env
+__pycache__/
+
+# Vite build output
+frontend/dist
+
+# Local environment variables
+frontend/.env
+
+# Node modules
+frontend/node_modules
