@@ -56,10 +56,10 @@ def refresh_hubspot_token(refresh_token: str) -> str:
         return None
 
 def get_hubspot_contacts() -> List[Dict[str, Any]]:
-    """Get recent contacts from HubSpot"""
+    """Get recent contacts from HubSpot with their notes and detailed properties"""
     token = get_hubspot_token()
     if not token:
-        return "HubSpot not connected. Please connect your HubSpot account first."
+        return []
     
     headers = {
         "Authorization": f"Bearer {token}",
@@ -68,28 +68,147 @@ def get_hubspot_contacts() -> List[Dict[str, Any]]:
     
     try:
         with httpx.Client() as client:
+            # Get contacts with more detailed properties
             response = client.get(
                 "https://api.hubapi.com/crm/v3/objects/contacts",
                 headers=headers,
-                params={"limit": 10}
+                params={
+                    "limit": 20,  # Increased limit to get more contacts
+                    "properties": [
+                        "email",
+                        "firstname", 
+                        "lastname",
+                        "phone",
+                        "mobilephone",
+                        "jobtitle",
+                        "company",
+                        "website",
+                        "address",
+                        "city",
+                        "state",
+                        "zip",
+                        "country",
+                        "lifecyclestage",
+                        "leadstatus",
+                        "createdate",
+                        "lastmodifieddate"
+                    ]
+                }
             )
             response.raise_for_status()
             data = response.json()
             
-            contacts = []
+            hubspot_data = []
+            
             for contact in data.get("results", []):
                 properties = contact.get("properties", {})
-                contacts.append({
-                    "id": contact.get("id"),
-                    "email": properties.get("email"),
-                    "firstname": properties.get("firstname"),
-                    "lastname": properties.get("lastname"),
-                    "company": properties.get("company")
-                })
+                contact_id = contact.get("id")
+                email = properties.get("email")
+                
+                # Create contact entry with detailed information
+                firstname = properties.get('firstname', '')
+                lastname = properties.get('lastname', '')
+                contact_name = f"{firstname} {lastname}".strip()
+                if not contact_name:
+                    contact_name = email or "Unknown Contact"
+                
+                # Get phone numbers (try multiple fields)
+                phone = properties.get('phone') or properties.get('mobilephone') or 'N/A'
+                
+                # Get job title and company
+                job_title = properties.get('jobtitle', 'N/A')
+                company = properties.get('company', 'N/A')
+                
+                # Get address information
+                address = properties.get('address', '')
+                city = properties.get('city', '')
+                state = properties.get('state', '')
+                zip_code = properties.get('zip', '')
+                country = properties.get('country', '')
+                
+                # Build full address
+                full_address = []
+                if address:
+                    full_address.append(address)
+                if city:
+                    full_address.append(city)
+                if state:
+                    full_address.append(state)
+                if zip_code:
+                    full_address.append(zip_code)
+                if country:
+                    full_address.append(country)
+                
+                address_str = ', '.join(full_address) if full_address else 'N/A'
+                
+                # Create detailed content string
+                content_parts = [
+                    f"Contact: {contact_name}",
+                    f"Email: {email}",
+                    f"Phone: {phone}",
+                    f"Job Title: {job_title}",
+                    f"Company: {company}",
+                    f"Address: {address_str}",
+                    f"Website: {properties.get('website', 'N/A')}",
+                    f"Lifecycle Stage: {properties.get('lifecyclestage', 'N/A')}",
+                    f"Lead Status: {properties.get('leadstatus', 'N/A')}",
+                    f"Created: {properties.get('createdate', 'N/A')}",
+                    f"Last Modified: {properties.get('lastmodifieddate', 'N/A')}"
+                ]
+                
+                contact_content = '\n'.join(content_parts)
+                
+                contact_entry = {
+                    "id": contact_id,
+                    "name": contact_name,
+                    "email": email,
+                    "content_type": "contact",
+                    "content": contact_content,
+                    # Add additional fields for easier access
+                    "phone": phone,
+                    "job_title": job_title,
+                    "company": company,
+                    "address": address_str,
+                    "website": properties.get('website', 'N/A'),
+                    "lifecycle_stage": properties.get('lifecyclestage', 'N/A'),
+                    "lead_status": properties.get('leadstatus', 'N/A')
+                }
+                hubspot_data.append(contact_entry)
+                
+                # Get notes for this contact
+                if contact_id:
+                    try:
+                        notes_response = client.get(
+                            f"https://api.hubapi.com/crm/v3/objects/notes",
+                            headers=headers,
+                            params={
+                                "associations.contact": contact_id,
+                                "limit": 5
+                            }
+                        )
+                        notes_response.raise_for_status()
+                        notes_data = notes_response.json()
+                        
+                        for note in notes_data.get("results", []):
+                            note_content = note.get("properties", {}).get("hs_note_body", "")
+                            if note_content:
+                                note_entry = {
+                                    "id": f"{contact_id}_note_{note.get('id')}",
+                                    "name": contact_name,
+                                    "email": email,
+                                    "content_type": "note",
+                                    "content": f"Note for {contact_name}: {note_content}"
+                                }
+                                hubspot_data.append(note_entry)
+                    except Exception as e:
+                        print(f"Error fetching notes for contact {contact_id}: {e}")
+                        continue
             
-            return contacts
+            return hubspot_data
+            
     except Exception as e:
-        return f"Error fetching HubSpot contacts: {str(e)}"
+        print(f"Error fetching HubSpot contacts: {str(e)}")
+        return []
 
 def create_hubspot_note(contact_email: str, note_content: str) -> str:
     """Create a note for a HubSpot contact"""

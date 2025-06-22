@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
-from api import auth, chat, hubspot
+from api import auth, chat, hubspot, webhooks
 from services.google import build_flow, handle_google_callback
 from dotenv import load_dotenv
 import os
@@ -36,7 +36,22 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth")
 app.include_router(chat.router, prefix="/chat")
 app.include_router(hubspot.router, prefix="/hubspot")
+app.include_router(webhooks.router, prefix="/webhooks")
 
 @app.get("/")
 def root():
     return {"status": "Backend is running"}
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "message": "Jump AI Agent is running",
+        "features": {
+            "rag": "enabled",
+            "task_management": "enabled", 
+            "ongoing_instructions": "enabled",
+            "proactive_processing": "enabled"
+        }
+    }

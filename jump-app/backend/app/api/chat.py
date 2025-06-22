@@ -5,16 +5,20 @@ from pydantic import BaseModel
 from openai import OpenAI
 from app.services.google import get_recent_emails, get_upcoming_events, send_email, reschedule_event
 from app.services.hubspot import get_hubspot_contacts, create_hubspot_note, get_hubspot_contact_notes
+from app.services.ai_agent import ai_agent
+from app.database import db
 
 router = APIRouter()
 client = OpenAI()
 
 class ChatRequest(BaseModel):
     question: str
+    user_id: str = "default_user"  # In a real app, this would come from authentication
 
 class ChatResponse(BaseModel):
     answer: str
 
+# Legacy tools for backward compatibility
 tools = [
     {
         "type": "function",
@@ -136,6 +140,20 @@ def ask_openai(question: str, context: str = "") -> str:
 @router.post("/", response_model=ChatResponse)
 async def chat_with_agent(request: ChatRequest):
     try:
+        # Use the new AI agent with RAG and task management
+        answer = ai_agent.process_user_query(
+            user_id=request.user_id,
+            query=request.question
+        )
+        return ChatResponse(answer=answer)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/legacy", response_model=ChatResponse)
+async def chat_with_legacy_agent(request: ChatRequest):
+    """Legacy endpoint for backward compatibility"""
+    try:
         emails = get_recent_emails()
         events = get_upcoming_events()
         contacts = get_hubspot_contacts()
@@ -154,6 +172,75 @@ async def chat_with_agent(request: ChatRequest):
         answer = ask_openai(request.question, context=context)
         return ChatResponse(answer=answer)
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# New endpoints for enhanced functionality
+
+@router.post("/tasks/execute")
+async def execute_pending_tasks():
+    """Execute all pending tasks"""
+    try:
+        from app.services.task_manager import task_manager
+        results = task_manager.execute_pending_tasks()
+        return {"results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/instructions")
+async def save_ongoing_instruction(instruction: str, category: str = "general"):
+    """Save an ongoing instruction"""
+    try:
+        result = db.save_ongoing_instruction(instruction, category)
+        return {"message": "Instruction saved", "instruction": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/instructions")
+async def get_ongoing_instructions(category: str = None):
+    """Get active ongoing instructions"""
+    try:
+        instructions = db.get_active_instructions(category)
+        return {"instructions": instructions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/import")
+async def bulk_import_data():
+    """Bulk import emails and HubSpot data with embeddings"""
+    try:
+        result = ai_agent.bulk_import_data()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/tasks")
+async def get_tasks(status: str = None):
+    """Get tasks by status"""
+    try:
+        if status:
+            tasks = db.get_tasks_by_status(status)
+        else:
+            tasks = db.get_pending_tasks()
+        return {"tasks": tasks}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/email/process")
+async def process_incoming_email(email_data: dict):
+    """Process incoming email proactively"""
+    try:
+        result = ai_agent.process_incoming_email(email_data)
+        return {"message": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/calendar/process")
+async def process_calendar_event(event_data: dict):
+    """Process calendar event proactively"""
+    try:
+        result = ai_agent.process_calendar_event(event_data)
+        return {"message": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
