@@ -163,9 +163,60 @@ export default function ChatUI({ onLogout }) {
     setIsLoading(false);
   };
 
+  // Hardcoded session history data (only for UI demonstration)
+  const [sessions, setSessions] = useState([
+    { id: 1, title: "Retirement Planning", date: "2023-06-15", active: false },
+    { id: 2, title: "Tax Optimization", date: "2023-06-10", active: false },
+    { id: 3, title: "Investment Portfolio", date: "2023-06-05", active: false },
+    { id: 4, title: "Current Session", date: "Now", active: true }
+  ]);
+
+  // Placeholder function for session switching (just UI for now)
+  const handleSessionSelect = (sessionId) => {
+    setSessions(sessions.map(session => ({
+      ...session,
+      active: session.id === sessionId
+    })));
+    
+    // In a real implementation, this would load messages from backend
+    console.log(`Switched to session ${sessionId}`);
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-950 font-sans">
-      <div className="flex flex-col w-full max-w-4xl min-h-[90vh] bg-white dark:bg-gray-900 shadow-xl rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden transition-all duration-300">
+      {/* Session History Sidebar */}
+      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-white">Chat Sessions</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Your conversation history</p>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {sessions.map((session) => (
+            <div
+              key={session.id}
+              onClick={() => handleSessionSelect(session.id)}
+              className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer transition-colors ${
+                session.active
+                  ? 'bg-blue-50 dark:bg-blue-900/30'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              <h3 className="font-medium text-gray-800 dark:text-white">{session.title}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{session.date}</p>
+            </div>
+          ))}
+        </div>
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => console.log("New session clicked")}
+            className="w-full py-2 px-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-colors"
+          >
+            New Session
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col h-screen">
         {/* Header */}
         <header className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-indigo-600 to-purple-700">
           <div className="flex items-center gap-3">
@@ -187,8 +238,8 @@ export default function ChatUI({ onLogout }) {
           </button>
         </header>
   
-        {/* Messages */}
-        <div className="flex-1 px-5 py-5 overflow-y-auto bg-gradient-to-b from-white to-gray-50 dark:from-gray-900 dark:to-gray-800/50">
+        {/* Messages container with fixed height and scrolling */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 bg-gradient-to-br from-gray-50 to-white dark:from-gray-900 dark:to-gray-800">
           {messages.map((msg, i) => (
             <ChatMessage key={i} msg={msg} />
           ))}
