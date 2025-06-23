@@ -25,36 +25,39 @@ SCOPES = [
     'https://www.googleapis.com/auth/userinfo.profile'
 ]
 
-CREDENTIALS_FILE = "credentials.json"
-
-if os.environ.get("GOOGLE_CREDS") and not os.path.exists(CREDENTIALS_FILE):
-    # Create directory if it doesn't exist
-    creds_dir = os.path.dirname(CREDENTIALS_FILE)
-    if creds_dir:
-        os.makedirs(creds_dir, exist_ok=True)
-    with open(CREDENTIALS_FILE, "w") as f:
-        f.write(os.environ["GOOGLE_CREDS"])
+# CREDENTIALS_FILE = "credentials.json"
+credentials_json = os.environ["GOOGLE_CREDENTIALS"]
+credentials = json.loads(credentials_json)
 
 def get_google_oauth_url() -> str:
-    """Get Google OAuth URL"""
-    flow = InstalledAppFlow.from_client_secrets_file(
-        CREDENTIALS_FILE, 
-        SCOPES
+    """Generate Google OAuth URL from credentials in environment variable (no file needed)."""
+    
+    # Load credentials from env var
+
+    # Build flow from client config instead of file
+    flow = InstalledAppFlow.from_client_config(
+        client_config=credentials,
+        scopes=SCOPES
     )
+
+    # Set redirect URI
     backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
     flow.redirect_uri = f"{backend_url}/auth/google/callback"
+
+    # Generate auth URL
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         prompt="consent",
         include_granted_scopes="true"
     )
+
     return auth_url
 
 async def exchange_google_code(code: str) -> Optional[Dict[str, Any]]:
     """Exchange authorization code for tokens"""
     try:
         flow = InstalledAppFlow.from_client_secrets_file(
-            CREDENTIALS_FILE, 
+            credentials, 
             SCOPES
         )
         backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
