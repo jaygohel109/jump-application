@@ -153,6 +153,20 @@ jump-application/
 
 ---
 
+## 💡 Challenges Faced
+
+Building this project in just 48 hours came with several challenges:
+
+- Integrating multiple OAuth providers (Google, HubSpot) and handling secure authentication flows.
+- Ensuring real-time data synchronization and webhook handling for emails, calendar events, and CRM updates.
+- Implementing a robust Retrieval-Augmented Generation (RAG) pipeline for semantic search across diverse data sources.
+- Designing flexible tool calling and persistent task memory for seamless automation.
+- Managing rapid development, debugging, and deployment under tight time constraints.
+
+Despite these challenges, I successfully completed all requirements and delivered a fully functional, production-ready AI agent.
+
+---
+
 ## 👤 Author
 
 **Jay Gohel**  
