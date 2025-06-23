@@ -14,6 +14,7 @@ This AI agent for Financial Advisors now includes **ALL** required features from
 ✅ **Proactive Agent Behavior** with webhooks/polling  
 ✅ **Enhanced Scheduling** with email threading  
 ✅ **Deployed and Working** on Render + Vercel  
+✅ **Fresh Authentication Flow** - Users authenticate both accounts on first visit  
 
 ---
 
@@ -24,6 +25,7 @@ This AI agent for Financial Advisors now includes **ALL** required features from
 - [🎯 Assessment Requirements Met](#-assessment-requirements-met)
 - [🏗 Architecture](#-architecture)
 - [🚀 Quick Start](#-quick-start)
+- [🔐 Authentication Flow](#-authentication-flow)
 - [📡 API Endpoints](#-api-endpoints)
 - [🎥 Live Demo](#-live-demo)
 - [🛠 Tech Stack](#-tech-stack)
@@ -219,6 +221,26 @@ uvicorn app.main:app --reload
 cd frontend
 npm run dev
 ```
+
+---
+
+## 🔐 Authentication Flow
+
+### 1. **Google Authentication**
+- **User**: Access Google account
+- **Agent**: Authenticate user with Google OAuth
+
+### 2. **HubSpot Authentication**
+- **User**: Access HubSpot account
+- **Agent**: Authenticate user with HubSpot OAuth
+
+### 3. **Combined Authentication**
+- **User**: Authenticate both accounts
+- **Agent**: Verify user credentials
+
+### 4. **Access Granted**
+- **User**: Access granted to AI agent
+- **Agent**: AI agent ready to use
 
 ---
 

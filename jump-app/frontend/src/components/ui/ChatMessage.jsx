@@ -3,8 +3,14 @@ import React, { useState } from 'react';
 import { User, Bot, Copy, Check, RotateCcw } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer'; // Import the new MarkdownRenderer
 
-const ChatMessage = ({ msg }) => {
+const ChatMessage = ({ message }) => {
   const [copied, setCopied] = useState(false);
+
+  // Map the new message format to the old format for compatibility
+  const msg = {
+    sender: message.type === 'user' ? 'user' : 'bot',
+    text: message.content
+  };
 
   const Icon = {
     user: User,
@@ -70,7 +76,7 @@ const ChatMessage = ({ msg }) => {
 
           {/* Timestamp */}
           <div className={`text-xs text-gray-500 dark:text-gray-400 mt-2 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}>
-            {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {message.timestamp ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>
       </div>

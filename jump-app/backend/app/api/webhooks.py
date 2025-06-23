@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 from app.services.ai_agent import ai_agent
 from app.services.google import get_recent_emails, get_upcoming_events
 from app.services.hubspot import get_hubspot_contacts
+from app.database import db
 import json
 import os
 
@@ -91,11 +92,18 @@ async def poll_for_updates():
         
         # Poll for new calendar events
         try:
-            events = get_upcoming_events(5)
-            if events:
-                for event in events:
-                    ai_agent.process_calendar_event(event)
-                results["calendar"] = f"Processed {len(events)} events"
+            # Get default user for system-wide operations
+            default_user = db.get_default_user()
+            if default_user:
+                events = get_upcoming_events(default_user["email"], 5)
+                if events:
+                    for event in events:
+                        ai_agent.process_calendar_event(event)
+                    results["calendar"] = f"Processed {len(events)} events"
+                else:
+                    results["calendar"] = "No new calendar events found"
+            else:
+                results["calendar"] = "No default user found for calendar operations"
         except Exception as e:
             results["calendar"] = f"Error processing calendar events: {str(e)}"
         
