@@ -4,7 +4,7 @@ backend/app/credentials.json
 __pycache__/
 
 # Vite build output
-frontend/dist
+# frontend/dist
 
 # Local environment variables
 frontend/.env

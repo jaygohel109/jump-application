@@ -10,13 +10,17 @@ function Login({ authStep, userInfo, onGoogleSuccess, onHubspotSuccess, onLogout
     setError('');
     
     try {
-      const response = await fetch('http://127.0.0.1:8000/auth/google/login');
-      const data = await response.json();
-      
-      if (data.oauth_url) {
-        window.location.href = data.oauth_url;
+      const response = await fetch('https://jump-application.onrender.com/auth/google/login');
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.oauth_url) {
+          window.location.href = data.oauth_url;
+        } else {
+          setError('Failed to get Google OAuth URL');
+        }
       } else {
-        setError('Failed to get Google OAuth URL');
+        setError('Failed to initiate Google login');
       }
     } catch (error) {
       console.error('Google login error:', error);
@@ -27,25 +31,20 @@ function Login({ authStep, userInfo, onGoogleSuccess, onHubspotSuccess, onLogout
   };
 
   const handleHubspotLogin = async () => {
-    setLoading(true);
-    setError('');
-    
     try {
-      const response = await fetch('http://127.0.0.1:8000/auth/hubspot', {
-        credentials: 'include',
-      });
-      const data = await response.json();
-      
-      if (data.oauth_url) {
-        window.location.href = data.oauth_url;
-      } else {
-        setError('Failed to get HubSpot OAuth URL');
-      }
+        const response = await fetch('https://jump-application.onrender.com/auth/hubspot', {
+            credentials: 'include',
+        });
+        const data = await response.json();
+
+        if (data.oauth_url) {
+            window.location.href = data.oauth_url;
+        } else {
+            setError('Failed to get HubSpot OAuth URL');
+        }
     } catch (error) {
-      console.error('HubSpot login error:', error);
-      setError('Failed to initiate HubSpot login');
-    } finally {
-      setLoading(false);
+        console.error('HubSpot login error:', error);
+        setError('An error occurred during HubSpot login.');
     }
   };
 
