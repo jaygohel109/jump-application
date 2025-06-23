@@ -462,8 +462,8 @@ async def test_cookie(request: Request, response: Response):
             key="test_cookie",
             value=test_value,
             httponly=False,
-            secure=False,
-            samesite="lax",
+            secure=True,
+            samesite="none",
             max_age=3600,  # 1 hour
             path="/"
         )
@@ -493,8 +493,8 @@ async def set_session_and_redirect(session_id: str):
             key="session_id",
             value=session_id,
             httponly=False,  # Allow JavaScript access for debugging
-            secure=False,    # Allow HTTP for local development
-            samesite="lax",  # More permissive for local development
+            secure=True,    # Allow HTTP for local development
+            samesite="none",  # More permissive for local development
             max_age=24 * 60 * 60,  # 24 hours
             path="/",
             domain=None  # Let the browser set the domain automatically
@@ -518,8 +518,8 @@ async def debug_set_session(session_id: str, request: Request, response: Respons
             key="session_id",
             value=session_id,
             httponly=False,  # Allow JavaScript access for debugging
-            secure=False,    # Allow HTTP for local development
-            samesite="lax",  # More permissive for local development
+            secure=True,    # Allow HTTP for local development
+            samesite="none",  # More permissive for local development
             max_age=24 * 60 * 60,  # 24 hours
             path="/",
             domain=None  # Let the browser set the domain automatically
