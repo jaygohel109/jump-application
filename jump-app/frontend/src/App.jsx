@@ -19,7 +19,7 @@ function App() {
       console.log('Current URL:', window.location.href); // Debug log
       console.log('Current cookies:', document.cookie); // Debug log
       
-      const response = await fetch('http://127.0.0.1:8000/auth/session', {
+      const response = await fetch('https://jump-application.onrender.com/auth/session', {
         credentials: 'include'
       });
       
@@ -76,8 +76,8 @@ function App() {
 
   const handleLogout = async () => {
     try {
-      await fetch('http://127.0.0.1:8000/auth/logout', {
-        method: 'GET',
+      await fetch('https://jump-application.onrender.com/auth/logout', {
+        method: 'POST',
         credentials: 'include'
       });
       setIsAuthenticated(false);
