@@ -1,7 +1,7 @@
 from supabase import create_client, Client
 from typing import List, Dict, Any, Optional
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 
 # Initialize Supabase client
@@ -127,6 +127,58 @@ class DatabaseManager:
         """Get recent emails without vector search"""
         result = self.supabase.table(TABLES["email_embeddings"]).select("*").order("created_at", desc=True).limit(limit).execute()
         return result.data
+    
+    def keyword_search_emails(self, emails: List[str], names: List[str], limit: int = 5) -> List[Dict[str, Any]]:
+        """Keyword search for emails by email addresses or names"""
+        try:
+            results = []
+            
+            # Search by sender email addresses
+            for email in emails:
+                result = self.supabase.table(TABLES["email_embeddings"]).select("*").ilike("sender", f"%{email}%").limit(limit).execute()
+                if result.data:
+                    results.extend(result.data)
+                
+                # Also search by recipient email addresses
+                result = self.supabase.table(TABLES["email_embeddings"]).select("*").ilike("recipient", f"%{email}%").limit(limit).execute()
+                if result.data:
+                    results.extend(result.data)
+            
+            # Search by names in subject, sender, recipient, or content
+            for name in names:
+                # Search in subject
+                result = self.supabase.table(TABLES["email_embeddings"]).select("*").ilike("subject", f"%{name}%").limit(limit).execute()
+                if result.data:
+                    results.extend(result.data)
+                
+                # Search in sender
+                result = self.supabase.table(TABLES["email_embeddings"]).select("*").ilike("sender", f"%{name}%").limit(limit).execute()
+                if result.data:
+                    results.extend(result.data)
+                
+                # Search in recipient
+                result = self.supabase.table(TABLES["email_embeddings"]).select("*").ilike("recipient", f"%{name}%").limit(limit).execute()
+                if result.data:
+                    results.extend(result.data)
+                
+                # Search in content
+                result = self.supabase.table(TABLES["email_embeddings"]).select("*").ilike("content", f"%{name}%").limit(limit).execute()
+                if result.data:
+                    results.extend(result.data)
+            
+            # Remove duplicates
+            seen_ids = set()
+            unique_results = []
+            for result in results:
+                if result.get('id') not in seen_ids:
+                    seen_ids.add(result.get('id'))
+                    unique_results.append(result)
+            
+            return unique_results[:limit]
+            
+        except Exception as e:
+            print(f"Error in keyword email search: {e}")
+            return []
     
     # HubSpot Embeddings (RAG)
     def save_hubspot_embedding(self, contact_data: Dict[str, Any], embedding: List[float]) -> Dict[str, Any]:
@@ -310,6 +362,214 @@ class DatabaseManager:
         except Exception as e:
             print(f"Error in keyword calendar search: {e}")
             return []
+
+    # User Authentication Management
+    def create_or_update_user(self, email: str, google_tokens: Dict[str, Any] = None, hubspot_tokens: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Create or update user with authentication tokens"""
+        try:
+            # Check if user exists
+            result = self.supabase.table("users").select("*").eq("email", email).execute()
+            
+            if result.data:
+                # Update existing user
+                user_id = result.data[0]["id"]
+                update_data = {"updated_at": datetime.utcnow().isoformat()}
+                
+                if google_tokens:
+                    update_data.update({
+                        "google_access_token": google_tokens.get("access_token"),
+                        "google_refresh_token": google_tokens.get("refresh_token"),
+                        "google_token_expires_at": google_tokens.get("expires_at")
+                    })
+                
+                if hubspot_tokens:
+                    update_data.update({
+                        "hubspot_access_token": hubspot_tokens.get("access_token"),
+                        "hubspot_refresh_token": hubspot_tokens.get("refresh_token"),
+                        "hubspot_token_expires_at": hubspot_tokens.get("expires_at")
+                    })
+                
+                result = self.supabase.table("users").update(update_data).eq("id", user_id).execute()
+                return result.data[0] if result.data else None
+            else:
+                # Create new user
+                user_data = {
+                    "email": email,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                
+                if google_tokens:
+                    user_data.update({
+                        "google_access_token": google_tokens.get("access_token"),
+                        "google_refresh_token": google_tokens.get("refresh_token"),
+                        "google_token_expires_at": google_tokens.get("expires_at")
+                    })
+                
+                if hubspot_tokens:
+                    user_data.update({
+                        "hubspot_access_token": hubspot_tokens.get("access_token"),
+                        "hubspot_refresh_token": hubspot_tokens.get("refresh_token"),
+                        "hubspot_token_expires_at": hubspot_tokens.get("expires_at")
+                    })
+                
+                result = self.supabase.table("users").insert(user_data).execute()
+                return result.data[0] if result.data else None
+                
+        except Exception as e:
+            print(f"Error creating/updating user: {e}")
+            return None
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get user by email"""
+        try:
+            result = self.supabase.table("users").select("*").eq("email", email).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error getting user by email: {e}")
+            return None
+
+    def get_user_by_session_id(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get user by session ID"""
+        try:
+            result = self.supabase.table("users").select("*").eq("session_id", session_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error getting user by session ID: {e}")
+            return None
+
+    def get_default_user(self) -> Optional[Dict[str, Any]]:
+        """Get the first available user with Google tokens for system-wide operations"""
+        try:
+            result = self.supabase.table("users").select("*").not_.is_("google_access_token", "null").limit(1).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error getting default user: {e}")
+            return None
+
+    def create_session(self, email: str, session_id: str, expires_in_hours: int = 24) -> bool:
+        """Create a new session for user"""
+        try:
+            expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
+            update_data = {
+                "session_id": session_id,
+                "session_expires_at": expires_at.isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.table("users").update(update_data).eq("email", email).execute()
+            return result.data is not None
+        except Exception as e:
+            print(f"Error creating session: {e}")
+            return False
+
+    def validate_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Validate session and return user data if valid"""
+        try:
+            print(f"Validating session: {session_id[:20]}...")  # Debug log
+            
+            result = self.supabase.table("users").select("*").eq("session_id", session_id).execute()
+            if not result.data:
+                print(f"No user found with session_id: {session_id[:20]}...")  # Debug log
+                return None
+            
+            user = result.data[0]
+            session_expires_at = user.get("session_expires_at")
+            
+            print(f"User found: {user.get('email')}")  # Debug log
+            print(f"Session expires at: {session_expires_at}")  # Debug log
+            
+            if not session_expires_at:
+                print("No session_expires_at found")  # Debug log
+                return None
+            
+            # Check if session is expired
+            try:
+                expires_at = datetime.fromisoformat(session_expires_at.replace('Z', '+00:00'))
+                now = datetime.utcnow().replace(tzinfo=timezone.utc)
+                
+                print(f"Expires at: {expires_at}")  # Debug log
+                print(f"Now: {now}")  # Debug log
+                print(f"Is expired: {now > expires_at}")  # Debug log
+                
+                if now > expires_at:
+                    # Session expired, clear it
+                    print("Session expired, clearing it")  # Debug log
+                    self.clear_session(session_id)
+                    return None
+                
+                print("Session is valid")  # Debug log
+                return user
+                
+            except Exception as e:
+                print(f"Error parsing session expiration: {e}")  # Debug log
+                return None
+            
+        except Exception as e:
+            print(f"Error validating session: {e}")
+            return None
+
+    def clear_session(self, session_id: str) -> bool:
+        """Clear a session"""
+        try:
+            update_data = {
+                "session_id": None,
+                "session_expires_at": None,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.table("users").update(update_data).eq("session_id", session_id).execute()
+            return result.data is not None
+        except Exception as e:
+            print(f"Error clearing session: {e}")
+            return False
+
+    def update_google_tokens(self, email: str, access_token: str, refresh_token: str, expires_at: str) -> bool:
+        """Update Google tokens for user"""
+        try:
+            update_data = {
+                "google_access_token": access_token,
+                "google_refresh_token": refresh_token,
+                "google_token_expires_at": expires_at,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.table("users").update(update_data).eq("email", email).execute()
+            return result.data is not None
+        except Exception as e:
+            print(f"Error updating Google tokens: {e}")
+            return False
+
+    def update_hubspot_tokens(self, email: str, access_token: str, refresh_token: str, expires_at: str) -> bool:
+        """Update HubSpot tokens for user"""
+        try:
+            update_data = {
+                "hubspot_access_token": access_token,
+                "hubspot_refresh_token": refresh_token,
+                "hubspot_token_expires_at": expires_at,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.table("users").update(update_data).eq("email", email).execute()
+            return result.data is not None
+        except Exception as e:
+            print(f"Error updating HubSpot tokens: {e}")
+            return False
+
+    def cleanup_expired_sessions(self) -> int:
+        """Clean up expired sessions and return count of cleaned sessions"""
+        try:
+            now = datetime.utcnow().isoformat()
+            result = self.supabase.table("users").update({
+                "session_id": None,
+                "session_expires_at": None,
+                "updated_at": now
+            }).lt("session_expires_at", now).execute()
+            
+            return len(result.data) if result.data else 0
+        except Exception as e:
+            print(f"Error cleaning up expired sessions: {e}")
+            return 0
 
 # Global database manager instance
 db = DatabaseManager() 

@@ -147,8 +147,14 @@ class TaskManager:
             }
         
         # Get available times from calendar
-        events = get_upcoming_events(10)
-        available_times = self.generate_available_times(events)
+        # Get default user for system-wide operations
+        default_user = self.db.get_default_user()
+        if default_user:
+            events = get_upcoming_events(default_user["email"], 10)
+            available_times = self.generate_available_times(events)
+        else:
+            # Fallback to default times if no user found
+            available_times = self.generate_available_times([])
         
         # Send email with available times
         email_content = f"""

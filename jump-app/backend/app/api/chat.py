@@ -1,22 +1,23 @@
 # backend/app/api/chat.py
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from typing import Dict, Any
 from openai import OpenAI
 from app.services.google import get_recent_emails, get_upcoming_events, send_email, reschedule_event
 from app.services.hubspot import get_hubspot_contacts, create_hubspot_note, get_hubspot_contact_notes
-from app.services.ai_agent import ai_agent
+from app.services.ai_agent import ai_agent, AIAgent
 from app.database import db
 
 router = APIRouter()
 client = OpenAI()
 
-class ChatRequest(BaseModel):
-    question: str
-    user_id: str = "default_user"  # In a real app, this would come from authentication
+class ChatMessage(BaseModel):
+    message: str
 
 class ChatResponse(BaseModel):
-    answer: str
+    response: str
+    context: Dict[str, Any] = {}
 
 # Legacy tools for backward compatibility
 tools = [
@@ -123,7 +124,7 @@ def ask_openai(question: str, context: str = "") -> str:
                 send_email(args["email"], args["message"])
                 return f"✅ I emailed {args['email']} with message: \"{args['message']}\""
             elif name == "reschedule_event_tool":
-                result = reschedule_event(args["person"], args["new_time"])
+                result = reschedule_event(user_email, args["person"], args["new_time"])
                 return result
             elif name == "get_hubspot_contacts_tool":
                 contacts = get_hubspot_contacts()
@@ -137,42 +138,121 @@ def ask_openai(question: str, context: str = "") -> str:
     else:
         return message.content.strip()
 
-@router.post("/", response_model=ChatResponse)
-async def chat_with_agent(request: ChatRequest):
+@router.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: Request, chat_message: ChatMessage):
+    """Chat endpoint that processes user messages"""
     try:
-        # Use the new AI agent with RAG and task management
-        answer = ai_agent.process_user_query(
-            user_id=request.user_id,
-            query=request.question
+        # Get session from cookie
+        session_id = request.cookies.get("session_id")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="No session found")
+        
+        # Validate session and get user
+        user = db.validate_session(session_id)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        
+        user_email = user["email"]
+        
+        # Create AI agent with user context
+        agent = AIAgent(user_email=user_email)
+        
+        # Process the message
+        response = agent.process_message(chat_message.message)
+        
+        # Get relevant data for context
+        relevant_data = agent.search_relevant_data(chat_message.message)
+        
+        return ChatResponse(
+            response=response,
+            context={
+                "user_email": user_email,
+                "has_google": bool(user.get("google_access_token")),
+                "has_hubspot": bool(user.get("hubspot_access_token")),
+                "relevant_emails_count": len(relevant_data.get("emails", [])),
+                "relevant_hubspot_count": len(relevant_data.get("hubspot_data", [])),
+                "relevant_calendar_count": len(relevant_data.get("calendar_events", []))
+            }
         )
-        return ChatResponse(answer=answer)
-
+        
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Chat endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/legacy", response_model=ChatResponse)
-async def chat_with_legacy_agent(request: ChatRequest):
-    """Legacy endpoint for backward compatibility"""
+@router.post("/bulk-import")
+async def bulk_import_endpoint(request: Request):
+    """Bulk import data from all connected services"""
     try:
-        emails = get_recent_emails()
-        events = get_upcoming_events()
-        contacts = get_hubspot_contacts()
-
-        formatted_emails = (
-            "\n".join(f"- {email}" for email in emails) if isinstance(emails, list) else str(emails)
-        )
-        formatted_events = (
-            "\n".join(f"- {event}" for event in events) if isinstance(events, list) else str(events)
-        )
-        formatted_contacts = (
-            "\n".join(f"- {contact}" for contact in contacts) if isinstance(contacts, list) else str(contacts)
-        )
-
-        context = f"Recent emails:\n{formatted_emails}\n\nUpcoming calendar events:\n{formatted_events}\n\nHubSpot contacts:\n{formatted_contacts}"
-        answer = ask_openai(request.question, context=context)
-        return ChatResponse(answer=answer)
-
+        # Get session from cookie
+        session_id = request.cookies.get("session_id")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="No session found")
+        
+        # Validate session and get user
+        user = db.validate_session(session_id)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        
+        user_email = user["email"]
+        
+        # Create AI agent with user context
+        agent = AIAgent(user_email=user_email)
+        
+        # Perform bulk import
+        results = agent.bulk_import_data()
+        
+        return {
+            "message": "Bulk import completed",
+            "results": results,
+            "user_email": user_email
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Bulk import endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/execute-tool")
+async def execute_tool_endpoint(request: Request, tool_data: Dict[str, Any]):
+    """Execute a specific tool"""
+    try:
+        # Get session from cookie
+        session_id = request.cookies.get("session_id")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="No session found")
+        
+        # Validate session and get user
+        user = db.validate_session(session_id)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        
+        user_email = user["email"]
+        
+        # Create AI agent with user context
+        agent = AIAgent(user_email=user_email)
+        
+        # Execute the tool
+        tool_name = tool_data.get("tool_name")
+        tool_params = tool_data.get("params", {})
+        
+        if not tool_name:
+            raise HTTPException(status_code=400, detail="Tool name is required")
+        
+        result = agent.execute_tool(tool_name, **tool_params)
+        
+        return {
+            "tool_name": tool_name,
+            "result": result,
+            "user_email": user_email
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Execute tool endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # New endpoints for enhanced functionality

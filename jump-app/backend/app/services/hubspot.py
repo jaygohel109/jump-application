@@ -1,63 +1,105 @@
 # backend/app/services/hubspot.py
-import pickle
+import os
+import sys
+sys.path.append("..")  
 import httpx
-import time
-from typing import List, Dict, Any
-from app import config
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta
+import json
+from app.database import db
 
-def get_hubspot_token():
-    """Get HubSpot access token from saved file, refresh if expired"""
-    try:
-        with open("hubspot_tokens.pickle", "rb") as token_file:
-            token_data = pickle.load(token_file)
-            
-            # Check if token is expired (expires_in is in seconds)
-            current_time = int(time.time())
-            token_expiry = token_data.get("expires_at", 0)  # We'll set this when saving
-            
-            # If token is expired or will expire in next 5 minutes, refresh it
-            if current_time >= (token_expiry - 300):
-                return refresh_hubspot_token(token_data.get("refresh_token"))
-            
-            return token_data.get("access_token")
-    except FileNotFoundError:
-        return None
+HUBSPOT_TOKEN_URL = "https://api.hubapi.com/oauth/v1/token"
 
-def refresh_hubspot_token(refresh_token: str) -> str:
-    """Refresh HubSpot access token using refresh token"""
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    data = {
-        "grant_type": "refresh_token",
-        "client_id": config.settings.HUBSPOT_CLIENT_ID,
-        "client_secret": config.settings.HUBSPOT_CLIENT_SECRET,
-        "refresh_token": refresh_token
-    }
+def get_hubspot_oauth_url() -> str:
+    """Get HubSpot OAuth URL"""
+    client_id = os.getenv("HUBSPOT_CLIENT_ID")
+    redirect_uri = os.getenv("HUBSPOT_REDIRECT_URI", "http://127.0.0.1:8000/auth/hubspot/callback")
     
+    return f"https://app.hubspot.com/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&scope=crm.objects.contacts.read%20crm.objects.contacts.write"
+
+async def exchange_hubspot_code(code: str) -> Optional[Dict[str, Any]]:
+    """Exchange authorization code for HubSpot tokens"""
     try:
-        with httpx.Client() as client:
-            response = client.post(
-                "https://api.hubapi.com/oauth/v1/token",
-                headers=headers,
-                data=data
-            )
-            response.raise_for_status()
-            token_data = response.json()
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": os.getenv("HUBSPOT_CLIENT_ID"),
+            "client_secret": os.getenv("HUBSPOT_CLIENT_SECRET"),
+            "redirect_uri": os.getenv("HUBSPOT_REDIRECT_URI", "http://127.0.0.1:8000/auth/hubspot/callback"),
+            "code": code
+        }
+        
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(HUBSPOT_TOKEN_URL, headers=headers, data=data)
+            resp.raise_for_status()
+            token_data = resp.json()
             
-            # Add expiry timestamp
-            token_data["expires_at"] = int(time.time()) + token_data.get("expires_in", 1800)
-            
-            # Save updated tokens
-            with open("hubspot_tokens.pickle", "wb") as token_file:
-                pickle.dump(token_data, token_file)
-            
-            return token_data.get("access_token")
+            return {
+                "access_token": token_data.get("access_token"),
+                "refresh_token": token_data.get("refresh_token"),
+                "expires_in": token_data.get("expires_in", 3600)
+            }
     except Exception as e:
-        print(f"Error refreshing HubSpot token: {str(e)}")
+        print(f"Error exchanging HubSpot code: {e}")
         return None
 
-def get_hubspot_contacts() -> List[Dict[str, Any]]:
-    """Get recent contacts from HubSpot with their notes and detailed properties"""
-    token = get_hubspot_token()
+def get_hubspot_token(email: str) -> Optional[str]:
+    """Get HubSpot access token for a user from database"""
+    try:
+        user = db.get_user_by_email(email)
+        if not user or not user.get("hubspot_access_token"):
+            return None
+        
+        # Check if token is expired
+        expires_at = user.get("hubspot_token_expires_at")
+        if expires_at:
+            expires_datetime = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+            if datetime.utcnow().replace(tzinfo=expires_datetime.tzinfo) >= expires_datetime:
+                # Token expired, try to refresh
+                return refresh_hubspot_token(email)
+        
+        return user["hubspot_access_token"]
+    except Exception as e:
+        print(f"Error getting HubSpot token: {e}")
+        return None
+
+def refresh_hubspot_token(email: str) -> Optional[str]:
+    """Refresh HubSpot token for a user"""
+    try:
+        user = db.get_user_by_email(email)
+        if not user or not user.get("hubspot_refresh_token"):
+            return None
+        
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        data = {
+            "grant_type": "refresh_token",
+            "client_id": os.getenv("HUBSPOT_CLIENT_ID"),
+            "client_secret": os.getenv("HUBSPOT_CLIENT_SECRET"),
+            "refresh_token": user["hubspot_refresh_token"]
+        }
+        
+        with httpx.Client() as client:
+            resp = client.post(HUBSPOT_TOKEN_URL, headers=headers, data=data)
+            resp.raise_for_status()
+            token_data = resp.json()
+            
+            # Update database with new tokens
+            expires_at = (datetime.utcnow() + timedelta(seconds=token_data.get("expires_in", 3600))).isoformat()
+            db.update_hubspot_tokens(
+                email,
+                token_data["access_token"],
+                token_data.get("refresh_token", user["hubspot_refresh_token"]),
+                expires_at
+            )
+            
+            return token_data["access_token"]
+    except Exception as e:
+        print(f"Error refreshing HubSpot token: {e}")
+        return None
+
+def get_hubspot_contacts(email: str) -> list:
+    """Get HubSpot contacts for a user"""
+    token = get_hubspot_token(email)
     if not token:
         return []
     
@@ -68,15 +110,14 @@ def get_hubspot_contacts() -> List[Dict[str, Any]]:
     
     try:
         with httpx.Client() as client:
-            # Get contacts with more detailed properties
             response = client.get(
                 "https://api.hubapi.com/crm/v3/objects/contacts",
                 headers=headers,
                 params={
-                    "limit": 20,  # Increased limit to get more contacts
+                    "limit": 100,
                     "properties": [
                         "email",
-                        "firstname", 
+                        "firstname",
                         "lastname",
                         "phone",
                         "mobilephone",
@@ -103,14 +144,14 @@ def get_hubspot_contacts() -> List[Dict[str, Any]]:
             for contact in data.get("results", []):
                 properties = contact.get("properties", {})
                 contact_id = contact.get("id")
-                email = properties.get("email")
+                contact_email = properties.get("email")
                 
                 # Create contact entry with detailed information
                 firstname = properties.get('firstname', '')
                 lastname = properties.get('lastname', '')
                 contact_name = f"{firstname} {lastname}".strip()
                 if not contact_name:
-                    contact_name = email or "Unknown Contact"
+                    contact_name = contact_email or "Unknown Contact"
                 
                 # Get phone numbers (try multiple fields)
                 phone = properties.get('phone') or properties.get('mobilephone') or 'N/A'
@@ -144,7 +185,7 @@ def get_hubspot_contacts() -> List[Dict[str, Any]]:
                 # Create detailed content string
                 content_parts = [
                     f"Contact: {contact_name}",
-                    f"Email: {email}",
+                    f"Email: {contact_email}",
                     f"Phone: {phone}",
                     f"Job Title: {job_title}",
                     f"Company: {company}",
@@ -161,7 +202,7 @@ def get_hubspot_contacts() -> List[Dict[str, Any]]:
                 contact_entry = {
                     "id": contact_id,
                     "name": contact_name,
-                    "email": email,
+                    "email": contact_email,
                     "content_type": "contact",
                     "content": contact_content,
                     # Add additional fields for easier access
@@ -195,7 +236,7 @@ def get_hubspot_contacts() -> List[Dict[str, Any]]:
                                 note_entry = {
                                     "id": f"{contact_id}_note_{note.get('id')}",
                                     "name": contact_name,
-                                    "email": email,
+                                    "email": contact_email,
                                     "content_type": "note",
                                     "content": f"Note for {contact_name}: {note_content}"
                                 }
@@ -210,9 +251,9 @@ def get_hubspot_contacts() -> List[Dict[str, Any]]:
         print(f"Error fetching HubSpot contacts: {str(e)}")
         return []
 
-def create_hubspot_note(contact_email: str, note_content: str) -> str:
+def create_hubspot_note(email: str, contact_email: str, note_content: str) -> str:
     """Create a note for a HubSpot contact"""
-    token = get_hubspot_token()
+    token = get_hubspot_token(email)
     if not token:
         return "HubSpot not connected. Please connect your HubSpot account first."
     
@@ -273,9 +314,9 @@ def create_hubspot_note(contact_email: str, note_content: str) -> str:
     except Exception as e:
         return f"Error creating HubSpot note: {str(e)}"
 
-def get_hubspot_contact_notes(contact_email: str) -> str:
+def get_hubspot_contact_notes(email: str, contact_email: str) -> str:
     """Get notes for a specific HubSpot contact"""
-    token = get_hubspot_token()
+    token = get_hubspot_token(email)
     if not token:
         return "HubSpot not connected. Please connect your HubSpot account first."
     
@@ -286,7 +327,7 @@ def get_hubspot_contact_notes(contact_email: str) -> str:
     
     try:
         with httpx.Client() as client:
-            # First find the contact
+            # First, find the contact by email
             search_response = client.post(
                 "https://api.hubapi.com/crm/v3/objects/contacts/search",
                 headers=headers,
@@ -310,7 +351,7 @@ def get_hubspot_contact_notes(contact_email: str) -> str:
             
             # Get notes for the contact
             notes_response = client.get(
-                f"https://api.hubapi.com/crm/v3/objects/notes",
+                "https://api.hubapi.com/crm/v3/objects/notes",
                 headers=headers,
                 params={
                     "associations.contact": contact_id,
@@ -320,15 +361,16 @@ def get_hubspot_contact_notes(contact_email: str) -> str:
             notes_response.raise_for_status()
             notes_data = notes_response.json()
             
-            notes = []
-            for note in notes_data.get("results", []):
-                notes.append({
-                    "id": note.get("id"),
-                    "content": note.get("properties", {}).get("hs_note_body"),
-                    "created": note.get("properties", {}).get("hs_timestamp")
-                })
+            if not notes_data.get("results"):
+                return f"No notes found for {contact_email}"
             
-            return notes
+            notes_text = f"Notes for {contact_email}:\n\n"
+            for note in notes_data["results"]:
+                note_content = note.get("properties", {}).get("hs_note_body", "")
+                if note_content:
+                    notes_text += f"• {note_content}\n\n"
+            
+            return notes_text
             
     except Exception as e:
-        return f"Error fetching HubSpot notes: {str(e)}" 
+        return f"Error getting HubSpot notes: {str(e)}" 
