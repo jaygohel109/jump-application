@@ -22,6 +22,9 @@ A production-ready AI agent for Financial Advisors, integrating Gmail, Google Ca
 ## 🚀 Live Demo
 
 **App URL 👉** https://jump-app.netlify.app/
+>**⚠️ Note:** The backend is hosted on a demand-based Render instance. It may take a few seconds/minutes to wake up if idle. Please wait a moment before logging in to ensure the session is initialized properly.
+>
+>✅ Once active, the full app flow—including login, session handling, and all key features—will function as intended.
 
 **Demo Video URL: 👉** [https://youtu.be/sckcaKYOy7A]
 
