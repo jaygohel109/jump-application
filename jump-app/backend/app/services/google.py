@@ -41,7 +41,8 @@ def get_google_oauth_url() -> str:
         CREDENTIALS_FILE, 
         SCOPES
     )
-    flow.redirect_uri = "http://127.0.0.1:8000/auth/google/callback"
+    backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+    flow.redirect_uri = f"{backend_url}/auth/google/callback"
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         prompt="consent",
@@ -56,7 +57,8 @@ async def exchange_google_code(code: str) -> Optional[Dict[str, Any]]:
             CREDENTIALS_FILE, 
             SCOPES
         )
-        flow.redirect_uri = "http://127.0.0.1:8000/auth/google/callback"
+        backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+        flow.redirect_uri = f"{backend_url}/auth/google/callback"
         
         # Fetch token with the code
         flow.fetch_token(code=code)
