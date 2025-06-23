@@ -294,8 +294,7 @@ def create_hubspot_note(email: str, contact_email: str, note_content: str) -> st
                 headers=headers,
                 json={
                     "properties": {
-                        "hs_note_body": note_content,
-                        "hs_timestamp": str(int(time.time() * 1000))
+                        "hs_note_body": note_content
                     },
                     "associations": [{
                         "to": {
