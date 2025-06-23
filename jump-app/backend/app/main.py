@@ -3,19 +3,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
 from api import auth, chat, hubspot, webhooks
-from services.google import build_flow, handle_google_callback
 from dotenv import load_dotenv
 import os
 import secrets
-import pickle
+from app.database import db
 
 load_dotenv()
 
 app = FastAPI()
 
+# Get allowed origins from environment or use defaults
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Frontend and backend
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -28,7 +30,6 @@ app.add_middleware(
     same_site="lax",  # Try 'none' if needed (requires HTTPS)
     https_only=False,  # Set to False for local HTTP testing
     max_age=1209600,  # 14 days, matching your cookie
-    domain="127.0.0.1",
     path="/"
 )
 
@@ -55,3 +56,8 @@ def health_check():
             "proactive_processing": "enabled"
         }
     }
+
+# This is required for Vercel deployment
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
