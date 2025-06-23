@@ -56,9 +56,9 @@ def get_google_oauth_url() -> str:
 async def exchange_google_code(code: str) -> Optional[Dict[str, Any]]:
     """Exchange authorization code for tokens"""
     try:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            credentials, 
-            SCOPES
+        flow = InstalledAppFlow.from_client_config(
+            client_config=credentials,  # Use the loaded dict, not a filename
+            scopes=SCOPES
         )
         backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
         flow.redirect_uri = f"{backend_url}/auth/google/callback"
@@ -66,13 +66,13 @@ async def exchange_google_code(code: str) -> Optional[Dict[str, Any]]:
         # Fetch token with the code
         flow.fetch_token(code=code)
         
-        credentials = flow.credentials
-        print(f"Successfully exchanged code for tokens. Scopes: {credentials.scopes}")  # Debug log
+        credentials_obj = flow.credentials
+        print(f"Successfully exchanged code for tokens. Scopes: {credentials_obj.scopes}")  # Debug log
         
         return {
-            "access_token": credentials.token,
-            "refresh_token": credentials.refresh_token,
-            "expires_in": credentials.expiry.timestamp() - time.time() if credentials.expiry else 3600
+            "access_token": credentials_obj.token,
+            "refresh_token": credentials_obj.refresh_token,
+            "expires_in": credentials_obj.expiry.timestamp() - time.time() if credentials_obj.expiry else 3600
         }
     except Exception as e:
         print(f"Error exchanging Google code: {e}")
